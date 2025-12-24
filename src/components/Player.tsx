@@ -10,49 +10,77 @@ const MOVE_SPEED = 3;
 const LOOK_SENSITIVITY = 0.0022;
 const BATTERY_DRAIN_PER_SEC = 6;
 const PICKUP_RANGE = 1.2;
+const PLAYER_RADIUS = 0.35;
+const PLAYER_HEIGHT = 1.7;
+const CAMERA_HEIGHT = 1.6;
+const SKIN_WIDTH = 0.04;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function intersectsBox(point: [number, number, number], box: { position: [number, number, number]; size: [number, number, number] }) {
-  const [px, py, pz] = point;
-  const [bx, by, bz] = box.position;
-  const [sx, sy, sz] = box.size;
-  return (
-    px > bx - sx / 2 &&
-    px < bx + sx / 2 &&
-    py > by - sy / 2 &&
-    py < by + sy / 2 &&
-    pz > bz - sz / 2 &&
-    pz < bz + sz / 2
-  );
-}
+function resolveCapsuleCollision(position: [number, number, number]) {
+  const expandedRadius = PLAYER_RADIUS + SKIN_WIDTH;
+  let resolved: [number, number, number] = [...position];
 
-function resolveCollision(desired: [number, number, number], current: [number, number, number]) {
-  let next: [number, number, number] = [...desired];
-  for (const collider of COLLIDERS) {
-    if (intersectsBox(next, collider)) {
-      // simple axis separation
-      const dx = desired[0] - current[0];
-      const dz = desired[2] - current[2];
-      let corrected: [number, number, number] = [...current];
-      if (dx !== 0) {
-        const test: [number, number, number] = [desired[0], current[1], current[2]];
-        if (!intersectsBox(test, collider)) {
-          corrected = [desired[0], corrected[1], corrected[2]];
+  const bottom = position[1] - CAMERA_HEIGHT;
+  const top = bottom + PLAYER_HEIGHT;
+
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    let adjusted = false;
+
+    for (const collider of COLLIDERS) {
+      const halfX = collider.size[0] / 2;
+      const halfY = collider.size[1] / 2;
+      const halfZ = collider.size[2] / 2;
+      const minX = collider.position[0] - halfX - expandedRadius;
+      const maxX = collider.position[0] + halfX + expandedRadius;
+      const minZ = collider.position[2] - halfZ - expandedRadius;
+      const maxZ = collider.position[2] + halfZ + expandedRadius;
+      const minY = collider.position[1] - halfY;
+      const maxY = collider.position[1] + halfY;
+
+      if (top < minY || bottom > maxY) {
+        continue;
+      }
+
+      const closestX = clamp(resolved[0], minX, maxX);
+      const closestZ = clamp(resolved[2], minZ, maxZ);
+      const dx = resolved[0] - closestX;
+      const dz = resolved[2] - closestZ;
+      const distSq = dx * dx + dz * dz;
+      const radSq = expandedRadius * expandedRadius;
+
+      if (distSq < radSq) {
+        const dist = Math.sqrt(distSq) || 0.0001;
+        const penetration = expandedRadius - dist;
+        const nx = dx / dist;
+        const nz = dz / dist;
+
+        if (Number.isFinite(nx) && Number.isFinite(nz)) {
+          resolved = [resolved[0] + nx * penetration, resolved[1], resolved[2] + nz * penetration];
+          adjusted = true;
+        } else {
+          const deltaX = resolved[0] - collider.position[0];
+          const deltaZ = resolved[2] - collider.position[2];
+          const overlapX = halfX + expandedRadius - Math.abs(deltaX);
+          const overlapZ = halfZ + expandedRadius - Math.abs(deltaZ);
+          if (overlapX < overlapZ) {
+            const dir = deltaX >= 0 ? 1 : -1;
+            resolved = [resolved[0] + overlapX * dir, resolved[1], resolved[2]];
+          } else {
+            const dir = deltaZ >= 0 ? 1 : -1;
+            resolved = [resolved[0], resolved[1], resolved[2] + overlapZ * dir];
+          }
+          adjusted = true;
         }
       }
-      if (dz !== 0) {
-        const test: [number, number, number] = [corrected[0], corrected[1], desired[2]];
-        if (!intersectsBox(test, collider)) {
-          corrected = [corrected[0], corrected[1], desired[2]];
-        }
-      }
-      next = corrected;
     }
+
+    if (!adjusted) break;
   }
-  return next;
+
+  return resolved;
 }
 
 export default function Player() {
@@ -152,7 +180,7 @@ export default function Player() {
     const moveZ = (direction[0] * sinYaw + direction[2] * cosYaw) * MOVE_SPEED * delta;
 
     const desired: [number, number, number] = [position[0] + moveX, position[1], position[2] + moveZ];
-    const resolved = resolveCollision(desired, position);
+    const resolved = resolveCapsuleCollision(desired);
 
     setPosition(resolved);
     drainBattery(delta * BATTERY_DRAIN_PER_SEC);
@@ -197,7 +225,7 @@ export default function Player() {
 
   return (
     <>
-      <perspectiveCamera ref={cameraRef} fov={75} near={0.1} far={80} />
+      <perspectiveCamera ref={cameraRef} fov={75} near={0.12} far={120} />
       <spotLight
         ref={flashlightRef}
         color="#fffbe6"

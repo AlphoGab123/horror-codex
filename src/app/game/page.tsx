@@ -17,9 +17,13 @@ export default function GamePage() {
     <div className="game-shell">
       <div className="canvas-container">
         <Suspense fallback={null}>
-          <GameCanvas shadows camera={{ position: [0, 1.6, 8], fov: 75 }}>
+          <GameCanvas
+            shadows
+            gl={{ logarithmicDepthBuffer: true }}
+            camera={{ position: [0, 1.6, 8], fov: 75, near: 0.12, far: 120 }}
+          >
             <color attach="background" args={["#050505"]} />
-            <fog attach="fog" args={["#050505", 12, 50]} />
+            <fog attach="fog" args={["#050505", 10, 70]} />
             <ambientLight intensity={0.08} />
             <Level />
             <Player />
